@@ -4,22 +4,26 @@ import sys
 import os
 import argparse
 import re
+from collections.abc import Iterable
+import itertools
 
 _prog_usage = r"dbpf-grep [options] [--] [files...]"
 _prog_description = r"""
 dbpf-grep - Print the TGI index of DBPF files, optionally filter for TGIs matching a pattern
 
+If multiple files match, the name of each matching file is printed as well.
+
 Example:
     dbpf-grep file.dat                          # print the whole TGI index
     dbpf-grep -i --regexp '030.00\b' file.dat   # print only matching TGIs
     dbpf-grep -e Exemplar -e S3D file.dat       # print TGIs of Exemplars and S3Ds
-
-If multiple files are passed, the name of each matching file is printed as well.
-
-Example:
-    find -type f -iregex '.*\.\(dat\|sc4model\|sc4desc\|sc4lot\|sc4\)$' -print0 | \
-            xargs -0 dbpf-grep -i --regexp '10000002' --
+    dbpf-grep -l                                # print all DBPF file names of current directory recursively
+    dbpf-grep -i --regexp '10000002' folder     # search for an ID in a folder
+    dbpf-grep -e LText | less -R                # use a pager for long output
 """.strip()
+# Example:
+#     find -type f -iregex '.*\.\(dat\|sc4model\|sc4desc\|sc4lot\|sc4\)$' -print0 | \
+#             xargs -0 dbpf-grep -i --regexp '10000002' --
 
 
 class colors:
@@ -86,9 +90,9 @@ def create_label(tgi) -> (str, str):
         return "Unknown", None
 
 
-def print_index(filename, *, patterns: list, print_filename: bool, name_only: bool, color: bool):
+def print_index(filepath, *, patterns: list, print_filename: bool, name_only: bool, color: bool):
     logged_filename = False
-    with open(filename, "rb") as file:
+    with open(filepath, "rb") as file:
         # parse header
         header = file.read(60)
         signature = header[0:4]
@@ -117,10 +121,10 @@ def print_index(filename, *, patterns: list, print_filename: bool, name_only: bo
             if not patterns or any(p.search(line) for p in patterns):
                 if print_filename and not logged_filename:
                     if name_only:
-                        print(filename)
+                        print(filepath)
                         break
                     else:
-                        print(f"==> {filename}" if not color else f"==> {colors.PURPLE}{filename}{colors.ENDC}")
+                        print(f"==> {filepath}" if not color else f"==> {colors.PURPLE}{filepath}{colors.ENDC}")
                     logged_filename = True
                 if not color:
                     print(line)
@@ -130,6 +134,29 @@ def print_index(filename, *, patterns: list, print_filename: bool, name_only: bo
                     # linec = f"T:{t} G:{g} I:{i} {labelc}"
                     linec = f"{colors.GRAY}T:{colors.ENDC}{t} {colors.GRAY}G:{colors.ENDC}{g} {colors.GRAY}I:{colors.ENDC}{i} {labelc}"
                     print(linec)
+
+
+_dbpf_file_pattern = re.compile(r"\.(dat|sc4[^./\\]*)$", re.IGNORECASE)
+
+
+def is_dbpf(file):
+    return os.path.isfile(file) and _dbpf_file_pattern.search(file)  # `isfile` follows symlinks, but returns False for broken symlinks
+
+
+def iterate_dbpf_files(paths: Iterable[str]):
+    for p in paths:
+        if os.path.isfile(p):
+            yield p
+        elif os.path.isdir(p):
+            for parent, dirnames, filenames in os.walk(p, followlinks=False):  # TODO followlinks could be a problem with recursive symlinks
+                filenames.sort(key=lambda name: name.upper())
+                dirnames.sort(key=lambda name: name.upper())
+                for filename in filenames:
+                    file = os.path.join(parent, filename)
+                    if is_dbpf(file):
+                        yield file
+        else:
+            raise Exception(f"Unsupported path (not a file or directory): {p}")
 
 
 def main() -> int:
@@ -148,9 +175,15 @@ def main() -> int:
 
     patterns = [re.compile(s, re.IGNORECASE) if args.ignore_case else re.compile(s) for s in args.regexp or []]
 
-    print_filename = len(args.files) > 1
-    for filename in args.files:
-        print_index(filename, patterns=patterns, print_filename=print_filename, name_only=args.name_only, color=not args.no_color)
+    files_iter = iterate_dbpf_files(args.files or [os.path.curdir])
+    # check if more than 1 file
+    file1 = next(files_iter, None)
+    file2 = next(files_iter, None)
+    files_iter = itertools.chain([file1, file2], files_iter) if file2 is not None else [file1] if file1 is not None else []
+    print_filename = file2 is not None
+
+    for filepath in files_iter:
+        print_index(filepath, patterns=patterns, print_filename=print_filename, name_only=args.name_only, color=not args.no_color)
     return 0
 
 
