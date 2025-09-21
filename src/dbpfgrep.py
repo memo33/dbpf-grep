@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Print the TGI index of a DBPF file.
 import sys
+import os
 import argparse
 import re
 
@@ -155,7 +156,15 @@ def main() -> int:
 
 if __name__ == '__main__':
     try:
-        sys.exit(main())
+        code = main()
+        sys.stdout.flush()
+        sys.exit(code)
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except BrokenPipeError:  # e.g. when piping to a pager like `less` and quitting before end of output
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        sys.exit(1)  # Python exits with error code 1 on EPIPE
     except Exception as e:
         print(e, file=sys.stderr)
-        sys.exit(1)
+        sys.exit(2)
