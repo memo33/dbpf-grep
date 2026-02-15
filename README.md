@@ -5,6 +5,8 @@ dbpf-grep
 
 It is useful for locating a specific TGI in a large Plugins folder very quickly, for debugging load order problems, and for getting a quick overview of the contents of multiple files.
 
+<img width="689" height="562" alt="demo" src="https://github.com/user-attachments/assets/2405c734-06a3-4dcc-9fa3-ca44b2fcc405" />
+
 ## Installation
 
 - Prerequisites: Python 3.x
