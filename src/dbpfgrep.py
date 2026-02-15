@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Print the TGI index of a DBPF file.
+# Print the TGI index of DBPF files, optionally filter for TGIs matching a pattern.
 import sys
 import os
 import argparse
@@ -11,12 +11,12 @@ _prog_usage = r"dbpf-grep [options] [--] [files...]"
 _prog_description = r"""
 dbpf-grep - Print the TGI index of DBPF files, optionally filter for TGIs matching a pattern
 
-If multiple files match, the name of each matching file is printed as well.
+If multiple files are scanned, the name of each matching file is printed as well.
 
-Example:
+examples:
     dbpf-grep file.dat                          # print the whole TGI index
-    dbpf-grep -i --regexp '030.00\b' file.dat   # print only matching TGIs
     dbpf-grep -e Exemplar -e S3D file.dat       # print TGIs of Exemplars and S3Ds
+    dbpf-grep --regexp '030.00\b' file.dat      # print only matching TGIs
     dbpf-grep -l                                # print all DBPF file names of current directory recursively
     dbpf-grep -i --regexp '10000002' folder     # search for an ID in a folder
     dbpf-grep -e LText | less -R                # use a pager for long output
@@ -169,7 +169,7 @@ def main() -> int:
     parser.add_argument("-e", "--regexp", metavar="pattern", action='append', help="Print only matching TGIs (case-sensitive regular expression).")
     parser.add_argument("-i", "--ignore-case", action='store_true', help="Ignore case distinctions in patterns.")
     parser.add_argument("-l", "--name-only", action='store_true', help="Only print the names of matching files, no TGIs.")
-    parser.add_argument("--no-color", action='store_true')  # help="todo"
+    parser.add_argument("--no-color", action='store_true', help="Do not use colors.")
     parser.add_argument("files", nargs="*", help="Names of DBPF files or directories to scan")
     args = parser.parse_args()
 
