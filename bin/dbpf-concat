@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+
+set -e
+# Find the location of this script, accounting for symlinks, see https://stackoverflow.com/a/246128
+SCRIPTDIR="$( cd -P "$( dirname "$(readlink -f "${BASH_SOURCE[0]}")" )" >/dev/null 2>&1 && pwd )"
+
+#------------------------------------------------------------
+# These options silence some deprecation warnings of Java 24+ caused by Scala and Jansi libraries.
+# See https://github.com/scala/scala3/issues/9013  (fixed once all dependencies are compiled with Scala 3.8+)
+# and https://github.com/fusesource/jansi/issues/301
+# export DBPFCLI_JAVA_OPTIONS="${DBPFCLI_JAVA_OPTIONS-"-XX:+IgnoreUnrecognizedVMOptions --sun-misc-unsafe-memory-access=allow --enable-native-access=ALL-UNNAMED"}"
+export DBPFCLI_JAVA_OPTIONS="${DBPFCLI_JAVA_OPTIONS-"-XX:+IgnoreUnrecognizedVMOptions --sun-misc-unsafe-memory-access=allow"}"
+
+#------------------------------------------------------------
+# Check if java is available or provide suitable exit code.
+if ! command -v java 2>&1 >/dev/null
+then
+    echo "Java could not be found. Please install a Java Runtime Environment and make sure it is added to your PATH environment variable during the installation."
+    exit 55
+fi
+
+exec java $DBPFCLI_JAVA_OPTIONS -jar "${SCRIPTDIR}/../target/scala-3.8.2/stripped/dbpf-cli.jar" concat "$@"
