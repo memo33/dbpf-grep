@@ -1,2 +1,5 @@
 target/
 /images/
+/.scala-build/
+/lib/
+/.bsp/
