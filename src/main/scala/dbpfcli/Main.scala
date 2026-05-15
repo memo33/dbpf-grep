@@ -2,8 +2,15 @@ package io.github.memo33.dbpfcli
 
 import caseapp.{RemainingArgs, ArgsName, HelpMessage, ExtraName, ValueDescription}
 import caseapp.core.util.fansi
-import io.github.memo33.scdbpf.{DbpfFile, DbpfEntry, Tgi, strategy}, strategy.throwExceptions
+import com.dynatrace.hash4j.hashing.Hashing
+import io.github.memo33.scdbpf.{DbpfFile, DbpfEntry, Tgi, DbpfPackager, strategy}, strategy.throwExceptions
+import io.github.memo33.scdbpf.compat.Input
 
+
+object Util {
+  def formatFile(file: java.io.File | java.nio.file.Path): fansi.Str = fansi.Color.Cyan(file.toString)
+}
+import Util.formatFile
 
 @ArgsName("DBPF input files")
 @HelpMessage(s"""
@@ -99,9 +106,75 @@ case object ConcatCommand extends caseapp.Command[ConcatOptions] {
     lines += "Error: Duplicate TGIs found in input files."
     caseapp.core.Error.Other(lines.result().mkString(f"%n"))
   }
+}
 
-  private def formatFile(file: java.io.File | java.nio.file.Path): fansi.Str = {
-    fansi.Color.Cyan(file.toString)
+@ArgsName("DBPF input file")
+@HelpMessage(s"""
+  |Convert a DBPF file to a human-readable text format.
+  |
+  |This is especially useful for comparing DBPF files with git.
+  |
+  |Examples:
+  |  dbpf-text input.dat > output.txt
+  |
+  |Directory files are ignored.
+  |The hash algorithm used is rapidhashV3.
+  |""".stripMargin.trim)
+final case class TextConvOptions(
+  @HelpMessage("Unpack QFS-compressed entries. This is much slower, but avoids hash differences that are only caused by the QFS compression.")
+  decompressed: Boolean = false,
+  @HelpMessage("Sort entries by TGI instead of keeping the original order.")
+  sorted: Boolean = false,
+)
+
+case object TextConvCommand extends caseapp.Command[TextConvOptions] {
+  override def names = List(List("text"))
+
+  def run(options: TextConvOptions, args: RemainingArgs): Unit = {
+    if (args.all.size != 1) {
+      error(caseapp.core.Error.Other(if (args.all.isEmpty) s"No input file specified." else s"Multiple input files specified. Pass exactly one input file."))
+    }
+    val path = java.nio.file.Path.of(args.all.head)
+    if (!java.nio.file.Files.exists(path)) {
+      error(caseapp.core.Error.Other(s"Input file not found: ${formatFile(path)}"))
+    }
+    val dbpf = DbpfFile.read(path.toFile)
+    val entries = if (options.sorted) dbpf.entries.sortBy(_.tgi) else dbpf.entries
+    val hasher = if (options.decompressed) DecompressingDbpfHasher() else FastDbpfHasher()
+    scala.util.Using.resource(new java.io.BufferedWriter(new java.io.OutputStreamWriter(System.out, java.nio.charset.StandardCharsets.UTF_8))) { out =>
+      for (e <- entries if e.tgi != Tgi.Directory) {
+        val hash = hasher.hashDbpfEntry(e)
+        out.write(f"${e.tgi}, H:$hash%016x, ${e.tgi.label}%n")
+      }
+    }
+  }
+}
+
+trait DbpfHasher {
+  /* for single-threaded use only */
+  def hashDbpfEntry(entry: DbpfEntry): Long
+}
+class FastDbpfHasher() extends DbpfHasher {
+  private val buffer = new Array[Byte](65536)
+  private val hashStream = Hashing.rapidhashV3.hashStream()
+  def hashDbpfEntry(entry: DbpfEntry): Long = {
+    hashStream.reset()
+    scala.util.Using.resource(entry.input()) { in =>
+      var read = 0
+      while ({ read = in.readBlock(buffer); read != -1 }) {
+        hashStream.putBytes(buffer, 0, read): Unit
+      }
+    }
+    hashStream.getAsLong()
+  }
+}
+class DecompressingDbpfHasher() extends DbpfHasher {
+  private val hashStream = Hashing.rapidhashV3.hashStream()
+  def hashDbpfEntry(entry: DbpfEntry): Long = {
+    hashStream.reset()
+    val arr = scala.util.Using.resource(entry.input())(Input.slurpBytes(_))
+    hashStream.putBytes(DbpfPackager.decompress(arr))
+    hashStream.getAsLong()
   }
 }
 
@@ -109,6 +182,7 @@ object Main extends caseapp.core.app.CommandsEntryPoint {
 
   val commands = Seq(
     ConcatCommand,
+    TextConvCommand,
   )
 
   val progName = "dbpf"

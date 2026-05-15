@@ -39,5 +39,6 @@ assembly / assemblyJarName := s"${name.value}.jar"
 
 libraryDependencies ++= Seq(
   "com.github.alexarchambault" %% "case-app" % "2.1.0",  // command-line app helper
-  "io.github.memo33" %% "scdbpf" % "0.3.0",
+  "io.github.memo33" %% "scdbpf" % "0.3.1",
+  "com.dynatrace.hash4j" % "hash4j" % "0.30.0",
 )
