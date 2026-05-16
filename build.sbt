@@ -2,7 +2,7 @@ name := "dbpf-cli"
 
 ThisBuild / organization := "io.github.memo33"
 
-ThisBuild / version := "0.1.1-SNAPSHOT"
+ThisBuild / version := "0.2.0"
 
 // ThisBuild / versionScheme := Some("early-semver")
 
