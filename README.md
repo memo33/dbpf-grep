@@ -1,18 +1,23 @@
-dbpf-grep
-=========
+*Command-line tools for working with DBPF files of SC4.*
 
-*A command-line search tool for DBPF file contents of SC4, modeled after [grep](https://www.gnu.org/software/grep/manual/grep.html).*
+Commands:
 
-It is useful for locating a specific TGI in a large Plugins folder very quickly, for debugging load order problems, and for getting a quick overview of the contents of multiple files.
-
-<img width="689" height="562" alt="demo" src="https://github.com/user-attachments/assets/2405c734-06a3-4dcc-9fa3-ca44b2fcc405" />
+- `dbpf-grep`: A search tool for DBPF file contents, modeled after [grep](https://www.gnu.org/software/grep/manual/grep.html).
+- `dbpf-concat`: Concatenate multiple DBPF files into one.
+- `dbpf-text`: Convert a DBPF file to a human-readable text format (e.g. for diffing).
 
 ## Installation
 
 - Prerequisites: Python 3.x
-- Add `bin` or `bin-windows` to your PATH.
+- Download and extract the latest release and add `bin` to your PATH.
 
-## Usage
+## `dbpf-grep`
+
+A search tool for DBPF file contents, modeled after [grep](https://www.gnu.org/software/grep/manual/grep.html).
+
+It is useful for locating a specific TGI in a large Plugins folder very quickly, for debugging load order problems, and for getting a quick overview of the contents of multiple files.
+
+<img width="689" height="562" alt="demo" src="https://github.com/user-attachments/assets/2405c734-06a3-4dcc-9fa3-ca44b2fcc405" />
 
 Synopsis: `dbpf-grep [options] [--] [files...]`
 
@@ -38,4 +43,55 @@ options:
   -i, --ignore-case     Ignore case distinctions in patterns.
   -l, --name-only       Only print the names of matching files, no TGIs.
   --no-color            Do not use colors.
+```
+
+## `dbpf-concat`
+
+Synopsis: `dbpf-concat [options] [DBPF input files]`
+
+Concatenate multiple DBPF files into one.
+
+The files are taken in the order in which they are specified on the command line.
+Later files overwrite TGIs of earlier files, but if there are duplicate TGIs within a single file, that is an error by default.
+
+Using the `--append` option allows patching an existing DBPF file in place.
+
+```
+Examples:
+  dbpf-concat -o output.dat input1.dat input2.dat
+  dbpf-concat -o file.dat --append input1.dat input2.dat
+
+Help options:
+  --usage            Print usage and exit
+  -h, -help, --help  Print help message and exit
+
+Other options:
+  -o, --output file         Output file
+  --append                  If the output file already exists, append to it instead of overwriting it.
+  --discard-duplicate-tgis  If an input file contains duplicate TGIs, keep only the first occurence instead of raising an error.
+  --silent                  Suppress non-error output.
+```
+
+## `dbpf-text`
+
+Synopsis: `dbpf-text [options] [DBPF input file]`
+
+Convert a DBPF file to a human-readable text format.
+
+This is especially useful for comparing DBPF files with git.
+
+```
+Examples:
+  dbpf-text input.dat > output.txt
+
+Directory files are ignored.
+The hash algorithm used is rapidhashV3.
+
+Help options:
+  --usage            Print usage and exit
+  -h, -help, --help  Print help message and exit
+
+Other options:
+  --decompressed  Unpack QFS-compressed entries. This is much slower, but avoids hash differences that are only caused by the QFS compression.
+  --sorted        Sort entries by TGI instead of keeping the original order.
 ```
