@@ -1,3 +1,3 @@
 @ECHO OFF
 SET SCRIPTDIR=%~dp0.
-python "%SCRIPTDIR%\..\src\dbpfgrep.py" %*
+python "%SCRIPTDIR%\..\lib\dbpfgrep.py" %*

@@ -1,0 +1,139 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, action]
+    tags: ["*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+          cache: 'sbt'
+
+      - uses: sbt/setup-sbt@v1
+
+      - name: Build jar
+        run: sbt assembly
+
+      - name: Upload jar artifact
+        uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          path: target/scala-*/stripped/dbpf-cli.jar
+
+      - name: Test
+        run: sbt test
+
+  build-native:
+    name: build-${{ matrix.platform }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - platform: linux-x64
+            os: ubuntu-latest
+          - platform: windows-x64
+            os: windows-latest
+          - platform: macos-aarch64
+            os: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download jar
+        uses: actions/download-artifact@v8
+        with:
+          skip-decompress: true
+          name: dbpf-cli.jar
+          path: ./build-artifacts
+
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build native image
+        shell: bash
+        run: |
+          mkdir -p build/lib
+          JAR_PATH=$(find ./build-artifacts -name 'dbpf-cli.jar')
+          if [ "${{ matrix.platform }}" = "windows-x64" ]; then
+            native-image.cmd --no-fallback -march=compatibility -J--sun-misc-unsafe-memory-access=allow -jar "$JAR_PATH" -o dbpf
+            mv dbpf.exe build/lib/
+          else
+            native-image --no-fallback -march=compatibility -J--sun-misc-unsafe-memory-access=allow -jar "$JAR_PATH" -o dbpf
+            mv dbpf build/lib/
+          fi
+
+      - name: Archive native image
+        shell: bash
+        run: tar -cvf dbpf-cli-${{ matrix.platform }}-artifact.tar --directory build lib
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v7
+        with:
+          archive: false
+          path: dbpf-cli-${{ matrix.platform }}-artifact.tar
+
+  deploy:
+    if: github.repository == 'memo33/dbpf-grep' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: build-native
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Download native artifacts
+        uses: actions/download-artifact@v8
+        with:
+          skip-decompress: true
+          pattern: dbpf-cli-*-artifact.tar
+          path: ./release-artifacts
+          merge-multiple: true
+
+      - name: Prepare release zips
+        shell: bash
+        run: |
+          for platform in linux-x64 windows-x64 macos-aarch64; do
+            mkdir -p "./tmp-${platform}"
+            tar -xvf "./release-artifacts/dbpf-cli-${platform}-artifact.tar" --directory "./tmp-${platform}"
+            mkdir -p "./release/${platform}/lib"
+            cp "./tmp-${platform}/lib/"* "./release/${platform}/lib/"
+            cp src/*.py "./release/${platform}/lib/" || true
+            if [ "$platform" = "windows-x64" ]; then
+              cp -r bin-windows "./release/${platform}/bin"
+            else
+              cp -r bin "./release/${platform}/bin"
+            fi
+            (cd "./release/${platform}" && zip --symlinks -r "../../dbpf-cli-${platform}.zip" .)
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          prerelease: false
+          draft: true
+          files: |
+            dbpf-cli-linux-x64.zip
+            dbpf-cli-windows-x64.zip
+            dbpf-cli-macos-aarch64.zip

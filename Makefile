@@ -10,4 +10,4 @@ build-native:
 clean:
 	sbt clean
 	rm -rf .scala-build/
-	rm -rf lib/dbpf*
+	rm -rf lib/dbpf lib/dbpf.build-artifacts.txt
