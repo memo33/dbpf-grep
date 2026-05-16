@@ -1,6 +1,5 @@
 *Command-line tools for working with DBPF files of SC4.*
 
-Commands:
 
 - `dbpf-grep`: A search tool for DBPF file contents, modeled after [grep](https://www.gnu.org/software/grep/manual/grep.html).
 - `dbpf-concat`: Concatenate multiple DBPF files into one.
@@ -9,7 +8,7 @@ Commands:
 ## Installation
 
 - Prerequisites: Python 3.x
-- Download and extract the latest release and add `bin` to your PATH.
+- Download and extract the [latest release](https://github.com/memo33/dbpf-grep/releases/latest) and add `bin` to your PATH.
 
 ## `dbpf-grep`
 
@@ -17,7 +16,7 @@ A search tool for DBPF file contents, modeled after [grep](https://www.gnu.org/s
 
 It is useful for locating a specific TGI in a large Plugins folder very quickly, for debugging load order problems, and for getting a quick overview of the contents of multiple files.
 
-<img width="689" height="562" alt="demo" src="https://github.com/user-attachments/assets/2405c734-06a3-4dcc-9fa3-ca44b2fcc405" />
+<img width="689" height="562" alt="demo01" src="https://github.com/user-attachments/assets/2405c734-06a3-4dcc-9fa3-ca44b2fcc405" />
 
 Synopsis: `dbpf-grep [options] [--] [files...]`
 
@@ -79,6 +78,8 @@ Synopsis: `dbpf-text [options] [DBPF input file]`
 Convert a DBPF file to a human-readable text format.
 
 This is especially useful for comparing DBPF files with git.
+
+<img width="881" height="272" alt="demo02" src="https://github.com/user-attachments/assets/7140a627-3f80-4d81-8a20-c149325319ba" />
 
 ```
 Examples:
