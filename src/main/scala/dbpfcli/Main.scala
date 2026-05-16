@@ -19,11 +19,11 @@ import Util.formatFile
   |The files are taken in the order in which they are specified on the command line.
   |Later files overwrite TGIs of earlier files, but if there are duplicate TGIs within a single file, that is an error by default.
   |
+  |Using the --append option allows patching an existing DBPF file in place.
+  |
   |Examples:
   |  dbpf-concat -o output.dat input1.dat input2.dat
   |  dbpf-concat -o file.dat --append input1.dat input2.dat
-  |
-  |The output file can be the same as one of the input files.
   |""".stripMargin.trim)
 final case class ConcatOptions(
   @ExtraName("o") @ValueDescription("file") @HelpMessage("Output file")
