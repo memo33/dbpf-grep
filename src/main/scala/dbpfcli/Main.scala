@@ -141,11 +141,24 @@ case object TextConvCommand extends caseapp.Command[TextConvOptions] {
     val dbpf = DbpfFile.read(path.toFile)
     val entries = if (options.sorted) dbpf.entries.sortBy(_.tgi) else dbpf.entries
     val hasher = if (options.decompressed) DecompressingDbpfHasher() else FastDbpfHasher()
-    scala.util.Using.resource(new java.io.BufferedWriter(new java.io.OutputStreamWriter(System.out, java.nio.charset.StandardCharsets.UTF_8))) { out =>
-      for (e <- entries if e.tgi != Tgi.Directory) {
-        val hash = hasher.hashDbpfEntry(e)
-        out.write(f"${e.tgi}, H:$hash%016x, ${e.tgi.label}%n")
+    val hadError =
+      util.boundary {
+        scala.util.Using.resource(new java.io.PrintWriter(System.out)) { out =>
+          var count = 0
+          for (e <- entries if e.tgi != Tgi.Directory) {
+            val hash = hasher.hashDbpfEntry(e)
+            out.write(f"${e.tgi}, H:$hash%016x, ${e.tgi.label}%n")
+            count += 1
+            if ((count & 0x3ff) == 0 && out.checkError()) {  // every 1024 steps, flush and check for e.g. SIGPIPE/EPIPE when a pipe to a pager like `less` quits
+              // System.err.println("broken pipe?")
+              util.boundary.break(true)  // allows resource cleanup
+            }
+          }
+          false
+        }
       }
+    if (hadError) {
+      exit(1)
     }
   }
 }
