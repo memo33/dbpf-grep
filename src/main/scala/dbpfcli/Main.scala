@@ -1,10 +1,11 @@
 package io.github.memo33.dbpfcli
 
+import scala.jdk.CollectionConverters.*
 import caseapp.{RemainingArgs, ArgsName, HelpMessage, ExtraName, ValueDescription}
 import caseapp.core.util.fansi
 import com.dynatrace.hash4j.hashing.Hashing
-import io.github.memo33.scdbpf.{DbpfFile, DbpfEntry, Tgi, DbpfPackager, strategy}, strategy.throwExceptions
-import io.github.memo33.scdbpf.compat.Input
+import io.github.memo33.scdbpf.{DbpfFile, DbpfEntry, BufferedEntry, RawType, Tgi, DbpfPackager, strategy}, strategy.throwExceptions
+import io.github.memo33.scdbpf.compat.{Input, ByteInput, ByteArrayInput}
 import io.github.memo33.passera.unsigned.UInt
 
 
@@ -47,12 +48,12 @@ case object ConcatCommand extends caseapp.Command[ConcatOptions] {
 
   def run(options: ConcatOptions, args: RemainingArgs): Unit = {
     if (args.all.isEmpty) {
-      error(caseapp.core.Error.Other(s"No input files specified."))
+      error(caseapp.core.Error.Other(s"Error: No input files specified."))
     }
     val paths = args.all.map(f => java.nio.file.Path.of(f))
     val missing = paths.filterNot(p => java.nio.file.Files.exists(p))
     if (missing.nonEmpty) {
-      error(caseapp.core.Error.Other(s"Input file(s) not found: ${missing.map(formatFile).mkString(", ")}"))
+      error(caseapp.core.Error.Other(s"Error: Input file(s) not found: ${missing.map(formatFile).mkString(", ")}"))
     }
     val outputPath = java.nio.file.Path.of(options.output)
 
@@ -99,12 +100,12 @@ case object ConcatCommand extends caseapp.Command[ConcatOptions] {
         }
         .flatten
 
-    val _ = DbpfFile.write(
+    DbpfFile.write(
       file = outputPath.toFile,
       entries = entriesToWrite,
       dateCreated = Util.sourceDateEpochOpt,
       dateModified = Util.sourceDateEpochOpt,
-    )
+    ): Unit
   }
 
   private def buildDuplicateTgiError(dbpfs: Iterable[DbpfFile]): caseapp.core.Error = {
@@ -119,6 +120,129 @@ case object ConcatCommand extends caseapp.Command[ConcatOptions] {
     caseapp.core.Error.Other(lines.result().mkString(f"%n"))
   }
 }
+
+@ArgsName("DBPF output file [input files]")
+@HelpMessage(s"""
+  |Insert individual files into a DBPF file.
+  |
+  |Each input file must have a .TGI sidecar file (Reader's format). Optionally, you can pass this .TGI file as input argument.
+  |
+  |The DBPF file may be specified as the first positional argument or with -o/--output.
+  |
+  |If the DBPF file already exists, the input files are inserted into the existing file; otherwise it is created.
+  |Existing TGIs will be overwritten.
+  |
+  |Examples:
+  |  dbpf-import dbpf.dat input1.ini input2.lua.TGI input3.rul
+  |  dbpf-import -o dbpf.dat input1.xml.TGI input2.png input3.eqzt
+  |""".stripMargin.trim)
+final case class ImportOptions(
+  @ExtraName("o") @ValueDescription("file") @HelpMessage("DBPF file")
+  output: String = "",
+  @HelpMessage("Suppress non-error output.")
+  silent: Boolean = false,
+)
+
+case object ImportCommand extends caseapp.Command[ImportOptions] {
+
+  private val maxQfsThreshold: Long = 0xffffff
+
+  def run(options: ImportOptions, args: RemainingArgs): Unit = {
+    val (outputValue, inputFiles) =
+      if (options.output.nonEmpty) {
+        (options.output, args.all)
+      } else if (args.all.isEmpty) {
+        error(caseapp.core.Error.Other("Error: No output DBPF file specified."))
+      } else {
+        (args.all.head, args.all.tail)
+      }
+    if (inputFiles.isEmpty) {
+      error(caseapp.core.Error.Other(if (options.output.isEmpty) "Error: No output DBPF file or no input files specified." else "Error: No input files specified."))
+    }
+
+    val outputPath = java.nio.file.Path.of(outputValue)
+    val inputPaths =
+      inputFiles.map { s =>
+        val normalized = if (s.toUpperCase(java.util.Locale.ENGLISH).endsWith(".TGI")) s.substring(0, s.length - ".TGI".length) else s
+        java.nio.file.Path.of(normalized)
+      }.distinct
+    val missing = inputPaths.filterNot(java.nio.file.Files.isRegularFile(_))
+    if (missing.nonEmpty) {
+      error(caseapp.core.Error.Other(s"Error: Input file(s) not found or not regular files: ${missing.map(formatFile).mkString(", ")}"))
+    }
+
+    val (badInputs, goodInputs) = inputPaths.partitionMap(p => readTgi(p).map(p -> _))
+    if (badInputs.nonEmpty) {
+      error(caseapp.core.Error.Other(f"Error:%n" + badInputs.mkString(f"%n")))
+    }
+    val importedTgis = collection.mutable.Map.empty[Tgi, java.nio.file.Path]
+    for ((path, tgi) <- goodInputs) {
+      if (importedTgis.contains(tgi)) {
+        error(caseapp.core.Error.Other(s"Error: Duplicate TGI $tgi among input files: ${formatFile(path)}, ${formatFile(importedTgis(tgi))}"))
+      }
+      importedTgis(tgi) = path
+    }
+
+    val origDbpf = Option.when(java.nio.file.Files.exists(outputPath))(DbpfFile.read(outputPath.toFile))
+    val existingEntriesIter: Iterator[DbpfEntry] =
+      origDbpf.map(_.entries).getOrElse(Nil).iterator
+        .filter(e => e.tgi != Tgi.Directory && !importedTgis.contains(e.tgi))
+
+    val importedEntriesIter: Iterator[DbpfEntry] = goodInputs.iterator.map { (path, tgi0) =>
+      new DbpfEntry {
+        val tgi = tgi0
+        def input(): Input[Byte] = {
+          val size = java.nio.file.Files.size(path)
+          val (result, compressedSize) =
+            if (size <= maxQfsThreshold) {
+              val bytes = DbpfPackager.compress(java.nio.file.Files.readAllBytes(path))
+              (new ByteArrayInput(bytes), Some(bytes.length))
+            } else {
+              (new ByteInput(java.nio.file.Files.newInputStream(path)), None)
+            }
+          if (!options.silent) {
+            val mode = if (origDbpf.exists(_.tgiMap.contains(tgi0))) "updating" else "  adding"
+            val ratio = compressedSize.map(cs => f"deflated ${100f * (1f - (cs.toFloat / size.toFloat))}%.0f%%").getOrElse("stored 0%")
+            println(s"$mode $tgi0  ${formatFile(path)} ($ratio)")
+          }
+          result
+        }
+      }
+    }
+
+    DbpfFile.write(
+      file = outputPath.toFile,
+      entries = existingEntriesIter ++ importedEntriesIter,
+      dateCreated = origDbpf.map(_.header.dateCreated).orElse(Util.sourceDateEpochOpt),
+      dateModified = Util.sourceDateEpochOpt,
+    ): Unit
+  }
+
+  private def readTgi(path: java.nio.file.Path): Either[String, Tgi] = {
+    def parseId(line: String, sidecar: java.nio.file.Path): Either[String, Int] = {
+      val hex = if (line.regionMatches(true, 0, "0x", 0, 2)) line.substring(2) else line
+      util.Try(java.lang.Integer.parseUnsignedInt(hex, 16))
+        .toEither
+        .left.map(ex => s"Invalid TGI file ${formatFile(sidecar)}: '$line' is not up to 8 hex characters")
+    }
+    for {
+      sidecar  <- findTgiSidecar(path).toRight(s"TGI file not found for ${formatFile(path)}")
+      lines    =  java.nio.file.Files.readAllLines(sidecar)
+                    .asScala.map(_.trim).filter(_.nonEmpty).toSeq
+      _        <- Option.when(lines.size != 3)(s"Invalid TGI file ${formatFile(sidecar)}: expected exactly 3 non-empty lines").toLeft(())
+      tid      <- parseId(lines(0), sidecar)
+      gid      <- parseId(lines(1), sidecar)
+      iid      <- parseId(lines(2), sidecar)
+    } yield Tgi(tid, gid, iid)
+  }
+
+  private def findTgiSidecar(path: java.nio.file.Path): Option[java.nio.file.Path] = {
+    Iterator(".TGI", ".tgi")
+      .map(suffix => path.resolveSibling(path.getFileName.toString + suffix))
+      .find(java.nio.file.Files.isRegularFile(_))
+  }
+}
+
 
 @ArgsName("DBPF input file")
 @HelpMessage(s"""
@@ -144,11 +268,11 @@ case object TextConvCommand extends caseapp.Command[TextConvOptions] {
 
   def run(options: TextConvOptions, args: RemainingArgs): Unit = {
     if (args.all.size != 1) {
-      error(caseapp.core.Error.Other(if (args.all.isEmpty) s"No input file specified." else s"Multiple input files specified. Pass exactly one input file."))
+      error(caseapp.core.Error.Other(if (args.all.isEmpty) s"Error: No input file specified." else s"Error: Multiple input files specified. Pass exactly one input file."))
     }
     val path = java.nio.file.Path.of(args.all.head)
     if (!java.nio.file.Files.exists(path)) {
-      error(caseapp.core.Error.Other(s"Input file not found: ${formatFile(path)}"))
+      error(caseapp.core.Error.Other(s"Error: Input file not found: ${formatFile(path)}"))
     }
     val dbpf = DbpfFile.read(path.toFile)
     val entries = if (options.sorted) dbpf.entries.sortBy(_.tgi) else dbpf.entries
@@ -207,6 +331,7 @@ object Main extends caseapp.core.app.CommandsEntryPoint {
 
   val commands = Seq(
     ConcatCommand,
+    ImportCommand,
     TextConvCommand,
   )
 

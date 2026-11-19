@@ -3,6 +3,7 @@
 
 - `dbpf-grep`: A search tool for DBPF file contents, modeled after [grep](https://www.gnu.org/software/grep/manual/grep.html).
 - `dbpf-concat`: Concatenate multiple DBPF files into one.
+- `dbpf-import`: Insert individual files into a DBPF file.
 - `dbpf-text`: Convert a DBPF file to a human-readable text format (e.g. for diffing).
 
 ## Installation
@@ -69,6 +70,33 @@ Other options:
   --append                  If the output file already exists, append to it instead of overwriting it.
   --discard-duplicate-tgis  If an input file contains duplicate TGIs, keep only the first occurence instead of raising an error.
   --silent                  Suppress non-error output.
+```
+
+## `dbpf-import`
+
+Synopsis: `dbpf-import [options] [DBPF output file [input files]]`
+
+Insert individual files into a DBPF file.
+
+Each input file must have a `.TGI` sidecar file (Reader's format). Optionally, you can pass this `.TGI` file as input argument.
+
+The DBPF file may be specified as the first positional argument or with `-o`/`--output`.
+
+If the DBPF file already exists, the input files are inserted into the existing file; otherwise it is created.
+Existing TGIs will be overwritten.
+
+```
+Examples:
+  dbpf-import dbpf.dat input1.ini input2.lua.TGI input3.rul
+  dbpf-import -o dbpf.dat input1.xml.TGI input2.png input3.eqzt
+
+Help options:
+  --usage            Print usage and exit
+  -h, -help, --help  Print help message and exit
+
+Other options:
+  -o, --output file  DBPF file
+  --silent           Suppress non-error output.
 ```
 
 ## `dbpf-text`
