@@ -5,10 +5,17 @@ import caseapp.core.util.fansi
 import com.dynatrace.hash4j.hashing.Hashing
 import io.github.memo33.scdbpf.{DbpfFile, DbpfEntry, Tgi, DbpfPackager, strategy}, strategy.throwExceptions
 import io.github.memo33.scdbpf.compat.Input
+import io.github.memo33.passera.unsigned.UInt
 
 
 object Util {
   def formatFile(file: java.io.File | java.nio.file.Path): fansi.Str = fansi.Color.Cyan(file.toString)
+
+  lazy val sourceDateEpochOpt: Option[UInt] = {
+    Option(System.getenv("SOURCE_DATE_EPOCH")).filter(_.nonEmpty)
+      .flatMap(s => implicitly[Numeric[Long]].parseString(s))
+      .map(l => UInt(l.toInt))
+  }
 }
 import Util.formatFile
 
@@ -92,7 +99,12 @@ case object ConcatCommand extends caseapp.Command[ConcatOptions] {
         }
         .flatten
 
-    val _ = DbpfFile.write(file = outputPath.toFile, entries = entriesToWrite)
+    val _ = DbpfFile.write(
+      file = outputPath.toFile,
+      entries = entriesToWrite,
+      dateCreated = Util.sourceDateEpochOpt,
+      dateModified = Util.sourceDateEpochOpt,
+    )
   }
 
   private def buildDuplicateTgiError(dbpfs: Iterable[DbpfFile]): caseapp.core.Error = {
