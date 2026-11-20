@@ -91,12 +91,20 @@ jobs:
           archive: false
           path: dbpf-cli-${{ matrix.platform }}-artifact.tar
 
+      - name: Quick test
+        shell: bash
+        run: |
+          build/lib/dbpf --help
+
   deploy:
     if: github.repository == 'memo33/dbpf-grep' && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     needs: build-native
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -126,6 +134,29 @@ jobs:
               cp -r bin "./release/${platform}/bin"
             fi
             (cd "./release/${platform}" && zip --symlinks -r "../../dbpf-cli-${platform}.zip" .)
+          done
+
+      - name: Attest release artifacts
+        id: attest
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dbpf-cli-linux-x64.zip
+            dbpf-cli-windows-x64.zip
+            dbpf-cli-macos-aarch64.zip
+
+      - name: Verify provenance attestation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for platform in linux-x64 windows-x64 macos-aarch64; do
+            gh attestation verify "dbpf-cli-${platform}.zip" \
+                --deny-self-hosted-runners \
+                --repo "${{ github.repository }}" \
+                --source-digest "${{ github.sha }}" \
+                --signer-workflow "${{ job.workflow_ref }}" \
+                --signer-digest "${{ job.workflow_sha }}"
           done
 
       - name: Create GitHub Release
